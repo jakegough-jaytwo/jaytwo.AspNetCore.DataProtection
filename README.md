@@ -14,8 +14,6 @@
     <img src="https://img.shields.io/nuget/vpre/jaytwo.AspNetCore.DataProtection.svg?logo=nuget&label=jaytwo.AspNetCore.DataProtection" /></a>
 </p>
 
-A simpler way to enable cookies and authentication encryption dependencies between hosts in ASP.NET Core.
-
 ## Installation
 
 Add the NuGet package
@@ -24,7 +22,12 @@ Add the NuGet package
 PM> Install-Package jaytwo.AspNetCore.DataProtection
 ```
 
-## The Problem
+## Why
+
+Everything from encrypted cookies to CSRF tokens uses Data Protection to encrypt and decrypt data 
+server-side (similar to the old `MachineKey` section in the `Web.Config`).  If your application is running
+in multiple instances, and if they don't share `DataProtection` keys, then data encrypted with one node 
+will not be able to be decrypted on another node.
 
 The problem is best outlined [in the Microsoft documentation](https://docs.microsoft.com/en-us/aspnet/core/host-and-deploy/web-farm?view=aspnetcore-3.1):
 
@@ -32,9 +35,31 @@ The problem is best outlined [in the Microsoft documentation](https://docs.micro
 
 > Consider a user who signs into the app using cookie authentication. The user signs into the app on one web farm node. If their next request arrives at the same node where they signed in, the app is able to decrypt the authentication cookie and allows access to the app's resource. If their next request arrives at a different node, the app can't decrypt the authentication cookie from the node where the user signed in, and authorization for the requested resource fails.
 
+## How
+
 The [official solutions](https://docs.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-3.1) are 
 pretty complicated when all you want to do is deploy this in a simple load-balanced environment.  Sometimes you don't have Redis infrastructure,
 nor are you running in Azure.
+
+Normally you would use a `.AddDataProtection().PersistKeysTo***()` extension method in startup.cs to 
+configure how to rotate keys.  The default options are filesystem, registry, Azure, or Redis -- but we didn't 
+have any of those readily available.  So we just generated a key template that's good for 1000 years and 
+we populate a tempalte with a key on initialization.  That key is the 64-byte hash of a seed which can come
+from configuration (including from secrets/config).
+
+## Lessons Learned
+
+The original implementation of this idea baked the actual encryption key into the application.  That prevented
+being able to define a unique encryption per environment and store that key at rest in Vault.
+
+### Making this better... or best
+
+* Improving the feature:
+  * allowing expiration to be loaded from configuration so keys can be rotated. (specify  multiple seeds each 
+    with defined effective/expiry dates)
+  * implementing key rotation by algorithm -- using a known TTL (14 days, for example), use the seed to populate 
+    keys on demand, with effective dates and expiry dates staggered according to the TTL
+* Implementing a DB-backed mechanism that can create new keys as old keys expire (and shortening the lifetime).
 
 ## Usage
 
